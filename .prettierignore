@@ -1,0 +1,36 @@
+# Node modules
+node_modules
+
+# Build output / compiled files (if any)
+dist
+build
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.production
+
+# Logs
+*.log
+logs
+npm-debug.log
+yarn-error.log
+
+# Public temp uploads or storage folders
+public/temp
+uploads
+tmp
+temp
+
+# Git stuff
+.git
+.gitignore
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode
+.idea
