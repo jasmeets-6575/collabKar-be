@@ -3,8 +3,10 @@ import cors from "cors"
 import cookieParser from "cookie-parser";
 const app = express();
 
+import { mustEnv } from "./utils/MustEnv.js";
+
 app.use(cors({
-    origin: process.env.CORS_ORIGIN,
+    origin: mustEnv("CORS_ORIGIN"),
     credentials: true
 }))
 app.use(express.json({

@@ -1,7 +1,10 @@
 import { User } from "../models/user.models.js";
 import { ApiError } from "../utils/ApiError.js";
+import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import { generateAccessAndrefreshTokens } from "../utils/generateAccessAndrefreshTokens.js";
+import { mustEnv } from "../utils/MustEnv.js";
 
 const registerUser = asyncHandler(async (req, res) => {
     const {
@@ -174,19 +177,109 @@ const registerUser = asyncHandler(async (req, res) => {
         throw new ApiError(500, "User registration failed");
     }
 
-    return res.status(201).json({
-        success: true,
-        message: "User registered successfully",
-        user: createdUser,
-    });
+    return res
+    .status(201)
+    .json(
+        new ApiResponse(
+            201,
+            { user: createdUser },
+            "User registered successfully"
+        )
+    );
 });
 
 const loginUser = asyncHandler(async (req, res) => {
-    return res.status(200).send("login");
+    const { username, email, password } = req.body;
+
+    if (!(username || email)) {
+        throw new ApiError(400, "username or email is required");
+    }
+
+    if (!password) {
+        throw new ApiError(400, "Password is required");
+    }
+
+    const normalizedEmail = email ? String(email).toLowerCase().trim() : null;
+    const normalizedUsername = username ? String(username).toLowerCase().trim() : null;
+
+    const user = await User.findOne({
+        $or: [
+            normalizedEmail ? { email: normalizedEmail } : null,
+            normalizedUsername ? { username: normalizedUsername } : null,
+        ].filter(Boolean),
+    });
+
+    if (!user) {
+        throw new ApiError(404, "User does not exist");
+    }
+
+    const isPasswordValid = await user.isPasswordCorrect(password);
+
+    if (!isPasswordValid) {
+        throw new ApiError(401, "Invalid user credentials");
+    }
+
+    const { accessToken, refreshToken } = await generateAccessAndrefreshTokens(user._id);
+
+    const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
+
+    const cookieOptions = {
+        httpOnly: true,
+        secure: mustEnv("NODE_ENV") === "production",
+        sameSite: "lax",
+    };
+
+    return res
+        .status(200)
+        .cookie("accessToken", accessToken, cookieOptions)
+        .cookie("refreshToken", refreshToken, cookieOptions)
+        .json(
+            new ApiResponse(
+                200,
+                {
+                    user: loggedInUser,
+                    accessToken,
+                    refreshToken,
+                },
+                "User logged in successfully"
+            )
+        );
 });
 
 const logoutUser = asyncHandler(async (req, res) => {
-    return res.status(200).send("logout");
+    const userId = req.user?._id;
+
+    if (!userId) {
+        throw new ApiError(401, "Unauthorized");
+    }
+
+    await User.findByIdAndUpdate(
+        userId,
+        {
+            $set: {
+                refreshToken: ""
+            }
+        },
+        { new: true }
+    );
+
+    const cookieOptions = {
+        httpOnly: true,
+        secure: mustEnv("NODE_ENV") === "production",
+        sameSite: mustEnv("NODE_ENV") === "production" ? "none" : "lax",
+    };
+
+    return res
+        .status(200)
+        .clearCookie("accessToken", cookieOptions)
+        .clearCookie("refreshToken", cookieOptions)
+        .json(
+            new ApiResponse(
+                200,
+                {},
+                "User logged out successfully"
+            )
+        );
 });
 
 export {
