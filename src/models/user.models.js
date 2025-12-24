@@ -166,30 +166,20 @@ const userSchema = new Schema(
 
 /* ---------------- HOOKS ---------------- */
 
-userSchema.pre("save", async function (next) {
-    if (!this.isModified("password")) return next();
+userSchema.pre("save", async function () {
+    if (!this.isModified("password")) return;
     this.password = await bcrypt.hash(this.password, 10);
-    next();
 });
 
-userSchema.pre("save", function (next) {
-    if (this.email) {
-        this.email = String(this.email).toLowerCase().trim();
-    }
-    if (this.username) {
-        this.username = String(this.username).toLowerCase().trim();
-    }
-    next();
-});
 
-userSchema.pre("validate", function (next) {
+// c
+userSchema.pre("validate", function () {
     if (this.role === ROLE_ENUM.CREATOR) {
         this.businessProfile = undefined;
     }
     if (this.role === ROLE_ENUM.BUSINESS) {
         this.creatorProfile = undefined;
     }
-    next();
 });
 
 /* ---------------- METHODS ---------------- */
