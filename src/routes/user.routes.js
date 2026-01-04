@@ -3,6 +3,7 @@ import {
     registerUser,
     loginUser,
     logoutUser,
+    getUserData,
 } from "../controllers/user.controllers.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
@@ -27,11 +28,7 @@ router.post("/login", loginUser);
 // protected routes
 router.post("/logout", verifyJWT, logoutUser);
 
-router.get("/me", verifyJWT, (req, res) => {
-    res.status(200).json({
-        success: true,
-        user: req.user,
-    });
-});
+
+router.get("/me", verifyJWT, getUserData);
 
 export default router;
