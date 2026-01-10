@@ -191,7 +191,9 @@ const loginUser = asyncHandler(async (req, res) => {
     });
   }
 
-  const { accessToken, refreshToken } = await user.generateAccessToken();
+  const { accessToken, refreshToken } = await generateAccessAndrefreshTokens(
+    user._id
+  );
   const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
 
   const isProd = mustEnv("NODE_ENV") === "production";
