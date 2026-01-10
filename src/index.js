@@ -4,22 +4,21 @@ import { app } from "./app.js";
 import { mustEnv } from "./utils/MustEnv.js";
 
 dotenv.config({
-    path: '../.env'
-})
+    path: "../.env",
+});
 
-const port = mustEnv("PORT") || 8001
+const port = mustEnv("PORT") || 8001;
 
 connectDB()
-.then(() => {
-    app.on("error", (error) => {
-        console.log("Error: Unable to connect to DB", error);
+    .then(() => {
+        app.on("error", (error) => {
+            console.log("Error: Unable to connect to DB", error);
+        });
+        app.listen(port, () => {
+            console.log();
+            console.log(` app is listening on ${port}`);
+        });
     })
-    app.listen(port, () => {
-        console.log();
-        console.log(` app is listening on ${port}`)
-    })
-})
-.catch((err) => {
-    console.log("MONGODB Connection failed", err);
-    
-})
+    .catch((err) => {
+        console.log("MONGODB Connection failed", err);
+    });

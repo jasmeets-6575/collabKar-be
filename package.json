@@ -1,36 +1,37 @@
 {
-  "name": "collabkar-be",
-  "version": "1.0.0",
-  "description": "collabkar Backend ",
-  "homepage": "https://github.com/jasmeets-6575/collabKar-be#readme",
-  "bugs": {
-    "url": "https://github.com/jasmeets-6575/collabKar-be/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/jasmeets-6575/collabKar-be.git"
-  },
-  "license": "ISC",
-  "author": "jasmeet singh",
-  "type": "module",
-  "main": "index.js",
-  "scripts": {
-    "dev": "nodemon -r dotenv/config --experimental-json-modules src/index.js"
-  },
-  "dependencies": {
-    "bcrypt": "^6.0.0",
-    "cloudinary": "^2.8.0",
-    "cookie-parser": "^1.4.7",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3",
-    "mongoose": "^9.0.1",
-    "mongoose-aggregate-paginate-v2": "^1.1.4",
-    "multer": "^2.0.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.11",
-    "prettier": "^3.7.4"
-  }
+    "name": "collabkar-be",
+    "version": "1.0.0",
+    "description": "collabkar Backend ",
+    "homepage": "https://github.com/jasmeets-6575/collabKar-be#readme",
+    "bugs": {
+        "url": "https://github.com/jasmeets-6575/collabKar-be/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/jasmeets-6575/collabKar-be.git"
+    },
+    "license": "ISC",
+    "author": "jasmeet singh",
+    "type": "module",
+    "main": "index.js",
+    "scripts": {
+        "dev": "nodemon -r dotenv/config --experimental-json-modules src/index.js",
+        "format": "prettier --write ."
+    },
+    "dependencies": {
+        "bcrypt": "^6.0.0",
+        "cloudinary": "^2.8.0",
+        "cookie-parser": "^1.4.7",
+        "cors": "^2.8.5",
+        "dotenv": "^17.2.3",
+        "express": "^5.2.1",
+        "jsonwebtoken": "^9.0.3",
+        "mongoose": "^9.0.1",
+        "mongoose-aggregate-paginate-v2": "^1.1.4",
+        "multer": "^2.0.2"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.11",
+        "prettier": "^3.7.4"
+    }
 }

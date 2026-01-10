@@ -1,4 +1,3 @@
-
 // src/constants/user.constants.js
 
 export const ROLE_ENUM = Object.freeze({
