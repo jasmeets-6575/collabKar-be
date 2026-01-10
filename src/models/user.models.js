@@ -12,12 +12,23 @@ import { mustEnv } from "../utils/MustEnv.js";
 
 /* ---------------- SUBSCHEMAS ---------------- */
 
+// Creator Profile Subschema
 const CreatorProfileSchema = new Schema(
     {
         instagramHandle: {
             type: String,
             trim: true,
-            required: true,
+            default: "",
+        },
+        facebookHandle: {
+            type: String,
+            trim: true,
+            default: "",
+        },
+        youtubeHandle: {
+            type: String,
+            trim: true,
+            default: "",
         },
         followerRange: {
             type: String,
@@ -50,6 +61,7 @@ const CreatorProfileSchema = new Schema(
     { _id: false }
 );
 
+// Business Profile Subschema
 const BusinessProfileSchema = new Schema(
     {
         businessName: {
@@ -89,6 +101,7 @@ const BusinessProfileSchema = new Schema(
 
 /* ---------------- USER SCHEMA ---------------- */
 
+// User Schema
 const userSchema = new Schema(
     {
         role: {
@@ -96,7 +109,6 @@ const userSchema = new Schema(
             enum: Object.values(ROLE_ENUM),
             required: true,
         },
-
         firstName: {
             type: String,
             required: true,
@@ -107,22 +119,18 @@ const userSchema = new Schema(
             required: true,
             trim: true,
         },
-
-        // ✅ gender instead of pronouns
         gender: {
             type: String,
             enum: ["male", "female", "other", "prefer_not_to_say"],
             default: "prefer_not_to_say",
             index: true,
         },
-        // Optional: only used when gender === "other"
         genderOther: {
             type: String,
             trim: true,
             maxlength: 40,
             default: "",
         },
-
         username: {
             type: String,
             required: true,
@@ -137,13 +145,11 @@ const userSchema = new Schema(
             ],
             index: true,
         },
-
         avatar: {
             type: String,
             required: true,
             default: "",
         },
-
         email: {
             type: String,
             required: true,
@@ -152,64 +158,63 @@ const userSchema = new Schema(
             trim: true,
             index: true,
         },
-
         phone: {
             type: String,
             required: true,
             trim: true,
         },
-
-        // ✅ Verified badge for UI
         verified: {
             type: Boolean,
             default: false,
             index: true,
         },
-
-        // Optional: if you later want public/private profiles
         profileVisibility: {
             type: String,
             enum: ["public", "private"],
             default: "public",
         },
-
-        // ✅ shared stats for BOTH creator & business
         stats: {
             collabsCompleted: { type: Number, default: 0, min: 0 },
             ratingAvg: { type: Number, default: 0, min: 0, max: 5 },
             ratingCount: { type: Number, default: 0, min: 0 },
         },
-
-        // ✅ safety / trust signals (use internally, don’t necessarily show publicly)
         safety: {
             spamReportCount: { type: Number, default: 0, min: 0 },
             blockedCount: { type: Number, default: 0, min: 0 },
             lastReportedAt: { type: Date, default: null },
-            flags: { type: [String], default: [] }, // e.g. ["spam", "harassment"]
+            flags: { type: [String], default: [] },
         },
-
         creatorProfile: {
             type: CreatorProfileSchema,
             required: function () {
                 return this.role === ROLE_ENUM.CREATOR;
             },
         },
-
         businessProfile: {
             type: BusinessProfileSchema,
             required: function () {
                 return this.role === ROLE_ENUM.BUSINESS;
             },
         },
-
         password: {
             type: String,
             required: [true, "Password is required"],
         },
-
         refreshToken: {
             type: String,
             default: "",
+        },
+
+        location: {
+            type: {
+                type: String,
+                enum: ["Point"], // GeoJSON type
+                required: false,
+            },
+            coordinates: {
+                type: [Number], // [longitude, latitude]
+                required: false,
+            },
         },
     },
     { timestamps: true }
@@ -269,5 +274,30 @@ userSchema.methods.generateRefreshToken = function () {
         }
     );
 };
+
+userSchema.methods.getDistanceFrom = function (longitude, latitude) {
+    if (!this.location || !this.location.coordinates) {
+        return null;
+    }
+
+    const [userLongitude, userLatitude] = this.location.coordinates;
+    const radian = (degree) => (degree * Math.PI) / 180;
+
+    const earthRadius = 6371; // Radius in km
+
+    const dLat = radian(latitude - userLatitude);
+    const dLng = radian(longitude - userLongitude);
+
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(radian(userLatitude)) *
+        Math.cos(radian(latitude)) *
+        Math.sin(dLng / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return earthRadius * c; // Distance in km
+};
+
+userSchema.index({ location: "2dsphere" });
 
 export const User = mongoose.models.User || mongoose.model("User", userSchema);
