@@ -42,10 +42,12 @@ app.use(cookieParser());
 import userRouter from "./routes/user.routes.js";
 import usernameRouter from "./routes/username.routes.js";
 import locationRouter from "./routes/location.routes.js";
+import campaignRouter from "./routes/campaign.routes.js";
 
 // routes declaration
 app.use("/api/v1/auth", userRouter);
 app.use("/api/v1/user", usernameRouter);
 app.use("/api/v1/location", locationRouter);
+app.use("/api/v1/campaign", campaignRouter);
 
 export { app };
