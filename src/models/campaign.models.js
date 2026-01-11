@@ -55,6 +55,11 @@ const campaignSchema = new mongoose.Schema(
             required: true,
             index: true,
         },
+        authorUsername: {
+            type: String,
+            required: true,
+            index: true,
+        },
 
         isDeleted: { type: Boolean, default: false, index: true },
         deletedAt: { type: Date, default: null },

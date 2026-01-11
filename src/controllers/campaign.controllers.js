@@ -75,6 +75,7 @@ const resolveCampaignLocation = async (req) => {
 
 const createCampaign = asyncHandler(async (req, res) => {
     const userId = req.user?._id;
+    const authorUsername = req.user?.username;
     if (!userId) throw new ApiError(401, "Unauthorized");
 
     ensureBusiness(req);
@@ -138,7 +139,7 @@ const createCampaign = asyncHandler(async (req, res) => {
         createdBy: userId,
         isDeleted: false,
         deletedAt: null,
-
+        authorUsername,
         ...(finalLocation ? { location: finalLocation } : {}),
     });
 
