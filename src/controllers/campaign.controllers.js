@@ -273,6 +273,7 @@ const updateCampaign = asyncHandler(async (req, res) => {
         paymentTerms,
         collabPreferences,
         location,
+        status
     } = req.body;
 
     const update = {};
@@ -340,6 +341,15 @@ const updateCampaign = asyncHandler(async (req, res) => {
             if (!loc) throw new ApiError(400, "Invalid location");
             update.location = loc;
         }
+    }
+    if (status !== undefined) {
+        if (!String(status).trim()) {
+            throw new ApiError(400, "status cannot be empty");
+        }
+        if (!CAMPAIGN_STATUS_OPTIONS.includes(String(status))) {
+            throw new ApiError(400, "Invalid status");
+        }
+        update.status = String(status);
     }
 
     const updateDoc = {};
