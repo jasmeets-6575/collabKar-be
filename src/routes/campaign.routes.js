@@ -18,9 +18,9 @@ router.get("/:id", verifyJWT, getCampaignById);
 
 // update
 router.patch("/:id/status", verifyJWT, updateCampaignStatus);
-router.patch("/:id", verifyJWT, updateCampaign);
+router.patch("/update/:id", verifyJWT, updateCampaign);
 
 // delete 
-router.delete("/:id", verifyJWT, deleteCampaign);
+router.delete("/delete/:id", verifyJWT, deleteCampaign);
 
 export default router;
