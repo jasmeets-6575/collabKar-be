@@ -182,12 +182,13 @@ const loginUser = asyncHandler(async (req, res) => {
   const isPasswordValid = await user.isPasswordCorrect(password);
   if (!isPasswordValid) throw new ApiError(401, "Invalid credentials");
 
-  // Check if location is provided, if not prompt for location
   if (!user.location) {
+    const safeUser = await User.findById(user._id).select("-password -refreshToken");
+
     return res.status(200).json({
       message: "Location not found. Please allow location access for better experience.",
-      locationRequired: true, // Flag to frontend to ask for location
-      user: { ...user.toObject(), location: undefined }, // Don't send location in response
+      locationRequired: true,
+      user: safeUser,
     });
   }
 
@@ -254,4 +255,177 @@ const getUserData = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, { user }, "User data fetched"));
 });
 
-export { registerUser, loginUser, logoutUser, getUserData };
+const editUserInfo = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  if (!userId) throw new ApiError(401, "Unauthorized");
+
+  const user = await User.findById(userId);
+  if (!user) throw new ApiError(404, "User not found");
+
+  if ("role" in req.body) throw new ApiError(400, "role cannot be updated");
+  if ("gender" in req.body) throw new ApiError(400, "gender cannot be updated");
+  if ("genderOther" in req.body) throw new ApiError(400, "genderOther cannot be updated");
+  if ("password" in req.body) throw new ApiError(400, "password cannot be updated here");
+
+  const {
+    firstName,
+    lastName,
+    username,
+    email,
+    phone,
+    location,
+
+    // creator fields
+    instagramHandle,
+    facebookHandle,
+    youtubeHandle,
+    followerRange,
+    categories,
+    creatorBio,
+    creatorCity,
+
+    // business fields
+    businessName,
+    industry,
+    websiteOrInstagram,
+    businessDescription,
+    businessCity,
+    collabPreferences,
+  } = req.body;
+
+  const update = {};
+
+  // ---- validate  ----
+  if (firstName !== undefined) {
+    if (!String(firstName).trim()) throw new ApiError(400, "firstName cannot be empty");
+    update.firstName = String(firstName).trim();
+  }
+
+  if (lastName !== undefined) {
+    if (!String(lastName).trim()) throw new ApiError(400, "lastName cannot be empty");
+    update.lastName = String(lastName).trim();
+  }
+
+  if (phone !== undefined) {
+    const p = String(phone).trim();
+    if (!p) throw new ApiError(400, "phone cannot be empty");
+    update.phone = p;
+  }
+
+  if (email !== undefined) {
+    const normalizedEmail = String(email).toLowerCase().trim();
+    if (!normalizedEmail) throw new ApiError(400, "email cannot be empty");
+
+    const exists = await User.findOne({ email: normalizedEmail, _id: { $ne: userId } });
+    if (exists) throw new ApiError(409, "Email already taken");
+
+    update.email = normalizedEmail;
+  }
+
+  if (username !== undefined) {
+    const normalizedUsername = String(username).toLowerCase().trim();
+    if (!normalizedUsername) throw new ApiError(400, "username cannot be empty");
+
+    const exists = await User.findOne({ username: normalizedUsername, _id: { $ne: userId } });
+    if (exists) throw new ApiError(409, "Username already taken");
+
+    update.username = normalizedUsername;
+  }
+
+  // ---- location (GeoJSON) ----
+  if (location !== undefined) {
+    if (location === null) {
+      update.location = undefined;
+    } else {
+      const lat = Number(location?.latitude);
+      const lng = Number(location?.longitude);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        throw new ApiError(400, "location must include valid latitude and longitude");
+      }
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        throw new ApiError(400, "location latitude/longitude out of range");
+      }
+
+      update.location = { type: "Point", coordinates: [lng, lat] };
+    }
+  }
+
+  // ---- avatar update (multipart) ----
+  const avatarLocalPath = req.files?.avatar?.[0]?.path || "";
+  if (avatarLocalPath) {
+    const avatarUpload = await uploadOnCloudinary(avatarLocalPath);
+    if (!avatarUpload?.secure_url && !avatarUpload?.url) {
+      throw new ApiError(400, "Avatar upload failed");
+    }
+    update.avatar = avatarUpload.secure_url || avatarUpload.url;
+  }
+
+  // ---- role-based profile updates ----
+  if (user.role === "creator") {
+    update.creatorProfile = { ...(user.creatorProfile?.toObject?.() ?? user.creatorProfile ?? {}) };
+
+    if (instagramHandle !== undefined)
+      update.creatorProfile.instagramHandle = String(instagramHandle || "").trim();
+    if (facebookHandle !== undefined)
+      update.creatorProfile.facebookHandle = String(facebookHandle || "").trim();
+    if (youtubeHandle !== undefined)
+      update.creatorProfile.youtubeHandle = String(youtubeHandle || "").trim();
+
+    if (followerRange !== undefined)
+      update.creatorProfile.followerRange = String(followerRange || "").trim();
+
+    if (categories !== undefined) {
+      update.creatorProfile.categories = Array.isArray(categories)
+        ? categories.map((c) => String(c).trim()).filter(Boolean)
+        : [];
+    }
+
+    if (creatorBio !== undefined)
+      update.creatorProfile.bio = String(creatorBio || "").trim();
+    if (creatorCity !== undefined)
+      update.creatorProfile.city = String(creatorCity || "").trim();
+
+    const hasAny =
+      update.creatorProfile.instagramHandle ||
+      update.creatorProfile.facebookHandle ||
+      update.creatorProfile.youtubeHandle;
+
+    if (!hasAny) throw new ApiError(400, "At least one social handle is required");
+  }
+
+  if (user.role === "business") {
+    update.businessProfile = { ...(user.businessProfile?.toObject?.() ?? user.businessProfile ?? {}) };
+
+    if (businessName !== undefined)
+      update.businessProfile.businessName = String(businessName || "").trim();
+    if (industry !== undefined)
+      update.businessProfile.industry = String(industry || "").trim();
+    if (websiteOrInstagram !== undefined)
+      update.businessProfile.websiteOrInstagram = String(websiteOrInstagram || "").trim();
+    if (businessDescription !== undefined)
+      update.businessProfile.description = String(businessDescription || "").trim();
+    if (businessCity !== undefined)
+      update.businessProfile.city = String(businessCity || "").trim();
+
+    if (collabPreferences !== undefined) {
+      update.businessProfile.collabPreferences = Array.isArray(collabPreferences)
+        ? collabPreferences.map((c) => String(c).trim()).filter(Boolean)
+        : [];
+    }
+  }
+
+  // ---- Save ----
+  const updatedUser = await User.findByIdAndUpdate(
+    userId,
+    { $set: update },
+    { new: true }
+  ).select("-password -refreshToken");
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { user: updatedUser }, "User updated successfully"));
+});
+
+
+export { registerUser, loginUser, logoutUser, getUserData, editUserInfo };

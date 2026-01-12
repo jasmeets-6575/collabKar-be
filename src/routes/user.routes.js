@@ -4,6 +4,7 @@ import {
     loginUser,
     logoutUser,
     getUserData,
+    editUserInfo,
 } from "../controllers/user.controllers.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
@@ -29,5 +30,13 @@ router.post("/login", loginUser);
 router.post("/logout", verifyJWT, logoutUser);
 
 router.get("/me", verifyJWT, getUserData);
+
+// Edit user 
+router.patch(
+    "/edit",
+    verifyJWT,
+    upload.fields([{ name: "avatar", maxCount: 1 }]),
+    editUserInfo
+);
 
 export default router;
