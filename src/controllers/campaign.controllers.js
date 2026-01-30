@@ -393,6 +393,115 @@ const deleteCampaign = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, { campaign }, "Campaign deleted"));
 });
 
+/* ------------------------------ DISCOVER (For Creators) ------------------------------ */
+
+const discoverCampaigns = asyncHandler(async (req, res) => {
+    const {
+        mode = "offline",
+        page = 1,
+        limit = 12,
+        radiusKm = 25,
+        q = "",
+        sortBy = "newest",
+        platforms = "" // comma separated
+    } = req.query;
+
+    const pageNum = Math.max(1, Number(page));
+    const limitNum = Math.max(1, Number(limit));
+
+    // 1. Build Base Match (Only active, non-deleted campaigns)
+    const baseMatch = {
+        isDeleted: false,
+        status: CAMPAIGN_STATUS.ACTIVE,
+    };
+
+    // 2. Text Search
+    if (q) {
+        baseMatch.$or = [
+            { title: { $regex: q, $options: "i" } },
+            { description: { $regex: q, $options: "i" } },
+            { tags: { $in: [new RegExp(q, "i")] } },
+            { authorUsername: { $regex: q, $options: "i" } }
+        ];
+    }
+
+    // 3. Platform Filter
+    if (platforms) {
+        const platformArray = platforms.split(",").map(p => p.trim()).filter(Boolean);
+        baseMatch.preferredSocialMediaPlatforms = { $in: platformArray };
+    }
+
+    let pipeline = [];
+
+    if (mode === "offline") {
+        // --- OFFLINE MODE: Geospatial Search ---
+        const userLocation = normalizeGeoPoint(req.user?.location);
+        if (!userLocation) {
+            throw new ApiError(400, "User location is required for offline discovery. Please update your profile.");
+        }
+
+        pipeline.push({
+            $geoNear: {
+                near: userLocation,
+                distanceField: "distanceKm",
+                spherical: true,
+                maxDistance: Number(radiusKm) * 1000, // Convert Km to Meters
+                query: baseMatch,
+                distanceMultiplier: 0.001, // Convert Meters to Km
+            },
+        });
+    } else {
+        // --- ONLINE MODE: Standard Search ---
+        pipeline.push({ $match: baseMatch });
+
+        // Sort Logic for Online
+        let sortObj = { createdAt: -1 };
+        if (sortBy === "budget") sortObj = { totalBudget: -1 };
+        if (sortBy === "deadline") sortObj = { deadline: 1 };
+
+        pipeline.push({ $sort: sortObj });
+    }
+
+    // Pagination
+    pipeline.push(
+        {
+            $facet: {
+                metadata: [{ $count: "total" }],
+                data: [
+                    { $skip: (pageNum - 1) * limitNum },
+                    { $limit: limitNum },
+                ],
+            },
+        },
+        {
+            $project: {
+                campaigns: "$data",
+                total: { $arrayElemAt: ["$metadata.total", 0] },
+            },
+        }
+    );
+
+    const [result] = await Campaign.aggregate(pipeline);
+
+    const total = result?.total || 0;
+    const campaigns = result?.campaigns || [];
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                campaigns,
+                pagination: {
+                    page: pageNum,
+                    limit: limitNum,
+                    total,
+                    pages: Math.ceil(total / limitNum),
+                },
+            },
+            `Found ${campaigns.length} campaigns`
+        )
+    );
+});
 export {
     createCampaign,
     getMyCampaigns,
@@ -400,4 +509,5 @@ export {
     updateCampaignStatus,
     updateCampaign,
     deleteCampaign,
+    discoverCampaigns
 };
