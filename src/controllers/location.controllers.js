@@ -27,13 +27,27 @@ const updateLocation = asyncHandler(async (req, res) => {
 /* -------------------------------- GET LOCATION -------------------------------- */
 
 const getLocation = asyncHandler(async (req, res) => {
-    const user = await User.findById(req.user._id);
-    if (!user || !user.location) {
+    const user = await User.findById(req.user._id).select("location");
+
+    const loc = user?.location;
+
+    const coords = loc?.coordinates;
+    const hasValidCoords =
+        Array.isArray(coords) &&
+        coords.length === 2 &&
+        Number.isFinite(Number(coords[0])) &&
+        Number.isFinite(Number(coords[1]));
+
+    if (!hasValidCoords) {
         throw new ApiError(404, "Location not set");
     }
 
-    return res.status(200).json(new ApiResponse(200, { location: user.location }, "Location fetched successfully"));
+    return res
+        .status(200)
+        .json(new ApiResponse(200, { location: loc }, "Location fetched successfully"));
 });
+
+
 
 /* -------------------------------- GET DISTANCE -------------------------------- */
 
