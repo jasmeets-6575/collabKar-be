@@ -1,10 +1,12 @@
 import mongoose from "mongoose";
 import Campaign from "../models/campaign.models.js";
+import { User } from "../models/user.models.js";
 import CampaignInvite from "../models/campaignInvite.models.js";
 
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { ChatConnection } from "../models/chatConnection.models.js";
 
 /**
  * BUSINESS: Send invite to a creator for a campaign
@@ -193,10 +195,12 @@ const getSentInvites = asyncHandler(async (req, res) => {
  * PATCH /api/v1/invites/:inviteId/status
  * body: { status: "accepted" | "rejected" }
  */
+// controllers/inviteController.js
+
 const updateInviteStatus = asyncHandler(async (req, res) => {
     const user = req.user;
     const { inviteId } = req.params;
-    const { status } = req.body;
+    const { status, brand_id } = req.body;
 
     if (!user) throw new ApiError(401, "Unauthorized");
     if (user.role !== "creator") throw new ApiError(403, "Only creators can update invite status");
@@ -218,11 +222,38 @@ const updateInviteStatus = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Invite already processed");
     }
 
+    // Update invite status
     invite.status = status;
     await invite.save();
 
+    // If invite is accepted, create a new ChatConnection
+    if (status === "accepted") {
+        const brandId = brand_id;  // Assuming brand is stored in the invite
+
+        // Check if the brand exists and is valid
+        if (!mongoose.isValidObjectId(brandId)) {
+            throw new ApiError(400, "Invalid brand id in the invite");
+        }
+
+        // Check if the brand exists in the database
+        const brand = await User.findById({ _id: brandId });
+        if (!brand) {
+            throw new ApiError(404, "Brand not found");
+        }
+
+        // Create a new chat connection between the creator and the brand
+        const chatConnection = await ChatConnection.create({
+            creator: user._id, // creator is the logged-in user
+            brand: brandId,    // brand from the invite
+        });
+
+        console.log("Chat connection created:", chatConnection);
+    }
+
     return res.status(200).json(new ApiResponse(200, invite, "Invite status updated"));
 });
+
+
 
 /**
  * BUSINESS: Cancel an invite (only if pending)
