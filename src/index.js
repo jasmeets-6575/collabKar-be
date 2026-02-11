@@ -2,7 +2,6 @@ import dotenv from "dotenv";
 import http from "http";
 import connectDB from "./db/index.js";
 import { app } from "./app.js";
-import { mustEnv } from "./utils/MustEnv.js";
 import { initSocket } from "./socket/socket.js";
 
 dotenv.config({

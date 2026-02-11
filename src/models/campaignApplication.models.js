@@ -39,6 +39,9 @@ campaignApplicationSchema.index(
     { unique: true }
 );
 
+campaignApplicationSchema.index({ campaign: 1, status: 1, createdAt: -1 });
+campaignApplicationSchema.index({ applicant: 1, status: 1, createdAt: -1 });
+
 export const CampaignApplication = mongoose.model(
     "CampaignApplication",
     campaignApplicationSchema

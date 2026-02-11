@@ -1,29 +1,24 @@
 import { Server } from "socket.io";
-import { mustEnv } from "../utils/MustEnv.js";
-import { EventHandlers } from "./EventHandlers.js";
 import { socketAuth } from "./socketAuth.js";
+import { EventHandlers } from "./EventHandlers.js";
 
 let io;
 
-const normalizeOrigin = (s) => String(s).trim().replace(/\/$/, ""); // drop trailing /
+const normalizeOrigin = (s) => String(s).trim().replace(/\/$/, "");
 
 export function initSocket(httpServer) {
     const allowedOrigins = [
         "http://localhost:3000",
         "http://localhost:3001",
-        "https://bucolic-snickerdoodle-271168.netlify.app",
+        // "https://bucolic-snickerdoodle-271168.netlify.app",
     ]
         .filter(Boolean)
         .map(normalizeOrigin);
 
-    console.log("Socket allowedOrigins:", allowedOrigins);
-
     io = new Server(httpServer, {
         cors: {
             origin: (origin, cb) => {
-                // allow non-browser clients / server-to-server
                 if (!origin) return cb(null, true);
-
                 const o = normalizeOrigin(origin);
                 if (allowedOrigins.includes(o)) return cb(null, true);
 
@@ -37,12 +32,11 @@ export function initSocket(httpServer) {
     });
 
     socketAuth(io);
+
     io.on("connection", (socket) => {
         console.log("🟢 Client connected:", socket.id);
         EventHandlers(socket, io);
-        socket.on("disconnect", () => {
-            console.log("🔴 Client disconnected:", socket.id);
-        });
+        socket.on("disconnect", () => console.log("🔴 Client disconnected:", socket.id));
     });
 
     return io;

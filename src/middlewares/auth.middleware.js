@@ -7,7 +7,7 @@ import { mustEnv } from "../utils/MustEnv.js";
 export const verifyJWT = asyncHandler(async (req, res, next) => {
     const token =
         req.cookies?.accessToken ||
-        req.header("token")?.replace("Bearer ", "");
+        req.header("authorization")?.replace("Bearer ", "");
 
     if (!token) {
         throw new ApiError(401, "Unauthorized request");

@@ -1,17 +1,12 @@
 import mongoose from "mongoose";
 import { Message } from "../models/socket/Message.js";
 import { Conversation } from "../models/socket/Conversation.js";
+import { makeDmKey } from "../utils/chat.js";
 
 function toObjectId(id) {
     if (!id) return null;
     if (!mongoose.Types.ObjectId.isValid(id)) return null;
     return new mongoose.Types.ObjectId(id);
-}
-
-function makeDmKey(a, b) {
-    const A = a.toString();
-    const B = b.toString();
-    return A < B ? `${A}_${B}` : `${B}_${A}`;
 }
 
 export function EventHandlers(socket, io) {

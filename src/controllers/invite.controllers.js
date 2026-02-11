@@ -8,6 +8,80 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ChatConnection } from "../models/chatConnection.models.js";
 
+// ✅ socket chat models
+import { Conversation } from "../models/socket/Conversation.js";
+import { Message } from "../models/socket/Message.js";
+import { makeDmKey } from "../utils/chat.js";
+
+// (optional) if you want realtime emit when invite accepted
+// import { getIO } from "../socket/initSocket.js";
+
+/* ---------------- helpers ---------------- */
+
+function toObjectId(id) {
+    if (!id) return null;
+    if (!mongoose.Types.ObjectId.isValid(id)) return null;
+    return new mongoose.Types.ObjectId(id);
+}
+
+/**
+ * Ensure DM Conversation exists for creator+brand and optionally send a system message
+ */
+async function ensureConversationAndSendDefaultMessage({
+    creatorId,
+    brandId,
+    text,
+}) {
+    const creator = toObjectId(creatorId);
+    const brand = toObjectId(brandId);
+    if (!creator || !brand) return null;
+
+    const dmKey = makeDmKey(creator, brand);
+
+    // find/create conversation
+    let conv = await Conversation.findOne({ dmKey });
+    if (!conv) {
+        conv = await Conversation.create({
+            type: "dm",
+            participants: [creator, brand],
+            dmKey,
+        });
+    }
+
+    // create message
+    const saved = await Message.create({
+        conversationId: conv._id,
+        senderId: brand, // ✅ brand sends the invite accepted message (you can change to creator if you want)
+        text,
+        clientId: `invite-accepted:${conv._id.toString()}`,
+    });
+
+    // update last message pointers
+    await Conversation.updateOne(
+        { _id: conv._id },
+        { $set: { lastMessageAt: saved.createdAt, lastMessageId: saved._id } }
+    );
+
+    // OPTIONAL realtime emit
+    // const io = getIO();
+    // io.to(`conv:${conv._id.toString()}`).emit("chat:new", {
+    //     id: saved._id.toString(),
+    //     conversationId: conv._id.toString(),
+    //     senderId: brand.toString(),
+    //     text: saved.text,
+    //     at: saved.createdAt.getTime(),
+    //     clientId: saved.clientId,
+    // });
+
+    // also notify both users even if they didn't join room yet
+    // io.to(`user:${creator.toString()}`).emit("chat:new", { ... });
+    // io.to(`user:${brand.toString()}`).emit("chat:new", { ... });
+
+    return { conversationId: conv._id.toString(), messageId: saved._id.toString() };
+}
+
+/* ---------------- controllers ---------------- */
+
 /**
  * BUSINESS: Send invite to a creator for a campaign
  * POST /api/v1/campaigns/:id/invite
@@ -35,7 +109,6 @@ const inviteCreatorToCampaign = asyncHandler(async (req, res) => {
     if (!title?.trim()) throw new ApiError(400, "Title is required");
     if (!description?.trim()) throw new ApiError(400, "Description is required");
 
-    // Ensure campaign exists and belongs to this business
     const campaign = await Campaign.findOne({
         _id: campaignId,
         createdBy: user._id,
@@ -44,24 +117,21 @@ const inviteCreatorToCampaign = asyncHandler(async (req, res) => {
 
     if (!campaign) throw new ApiError(404, "Campaign not found or not owned by you");
 
-    // Optional: only allow invites for active campaigns
     if (campaign.status !== "active") {
         throw new ApiError(400, "You can invite creators only for active campaigns");
     }
 
-    // If offeredPaymentTerms is set, ensure it matches campaign payment options enum
-    // (Your campaign paymentTerms enum: ["cash","product","freebies","food"])
     const allowedTerms = ["cash", "product", "freebies", "food"];
     if (offeredPaymentTerms && !allowedTerms.includes(offeredPaymentTerms)) {
         throw new ApiError(400, "Invalid offeredPaymentTerms");
     }
 
-    // deliverables should be an array of strings
     const safeDeliverables = Array.isArray(deliverables)
-        ? deliverables.filter((d) => typeof d === "string" && d.trim()).map((d) => d.trim())
+        ? deliverables
+            .filter((d) => typeof d === "string" && d.trim())
+            .map((d) => d.trim())
         : [];
 
-    // Create invite (unique index: {campaign, creator} prevents duplicates)
     let invite;
     try {
         invite = await CampaignInvite.create({
@@ -74,20 +144,16 @@ const inviteCreatorToCampaign = asyncHandler(async (req, res) => {
             offeredAmount: typeof offeredAmount === "number" ? offeredAmount : null,
             offeredPaymentTerms: offeredPaymentTerms || null,
             deliverables: safeDeliverables,
-            // creatorUsername optional: if you have it in body, store it. else omit.
             creatorUsername: req.body.creatorUsername || "",
         });
     } catch (e) {
-        // duplicate key error from unique index
         if (e?.code === 11000) {
             throw new ApiError(409, "You already invited this creator for this campaign");
         }
         throw e;
     }
 
-    return res
-        .status(201)
-        .json(new ApiResponse(201, invite, "Invite sent successfully"));
+    return res.status(201).json(new ApiResponse(201, invite, "Invite sent successfully"));
 });
 
 /**
@@ -104,7 +170,7 @@ const getMyInvites = asyncHandler(async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit || "20", 10), 1), 50);
     const skip = (page - 1) * limit;
 
-    const status = req.query.status; // optional: pending/accepted/rejected/cancelled
+    const status = req.query.status;
 
     const filter = {
         creator: user._id,
@@ -126,19 +192,14 @@ const getMyInvites = asyncHandler(async (req, res) => {
     return res.status(200).json(
         new ApiResponse(
             200,
-            {
-                page,
-                limit,
-                total,
-                invites: items,
-            },
+            { page, limit, total, invites: items },
             "Invites fetched"
         )
     );
 });
 
 /**
- * BUSINESS: Get invites sent by me (optionally for one campaign)
+ * BUSINESS: Get invites sent by me
  * GET /api/v1/invites/sent?campaignId=...
  */
 const getSentInvites = asyncHandler(async (req, res) => {
@@ -179,12 +240,7 @@ const getSentInvites = asyncHandler(async (req, res) => {
     return res.status(200).json(
         new ApiResponse(
             200,
-            {
-                page,
-                limit,
-                total,
-                items,
-            },
+            { page, limit, total, items },
             "Sent invites fetched"
         )
     );
@@ -195,12 +251,10 @@ const getSentInvites = asyncHandler(async (req, res) => {
  * PATCH /api/v1/invites/:inviteId/status
  * body: { status: "accepted" | "rejected" }
  */
-// controllers/inviteController.js
-
 const updateInviteStatus = asyncHandler(async (req, res) => {
     const user = req.user;
     const { inviteId } = req.params;
-    const { status, brand_id } = req.body;
+    const { status } = req.body;
 
     if (!user) throw new ApiError(401, "Unauthorized");
     if (user.role !== "creator") throw new ApiError(403, "Only creators can update invite status");
@@ -214,7 +268,7 @@ const updateInviteStatus = asyncHandler(async (req, res) => {
         _id: inviteId,
         creator: user._id,
         isDeleted: false,
-    });
+    }).populate("campaign", "title"); // for default message text
 
     if (!invite) throw new ApiError(404, "Invite not found");
 
@@ -222,38 +276,52 @@ const updateInviteStatus = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Invite already processed");
     }
 
-    // Update invite status
     invite.status = status;
     await invite.save();
 
-    // If invite is accepted, create a new ChatConnection
     if (status === "accepted") {
-        const brandId = brand_id;  // Assuming brand is stored in the invite
+        const brandId = invite.business; // ✅ business is the brand in your system
 
-        // Check if the brand exists and is valid
         if (!mongoose.isValidObjectId(brandId)) {
             throw new ApiError(400, "Invalid brand id in the invite");
         }
 
-        // Check if the brand exists in the database
         const brand = await User.findById({ _id: brandId });
         if (!brand) {
             throw new ApiError(404, "Brand not found");
         }
 
-        // Create a new chat connection between the creator and the brand
-        const chatConnection = await ChatConnection.create({
-            creator: user._id, // creator is the logged-in user
-            brand: brandId,    // brand from the invite
+        // ✅ ensure ChatConnection exists (avoid duplicates)
+        await ChatConnection.updateOne(
+            { creator: user._id, brand: brandId },
+            { $setOnInsert: { creator: user._id, brand: brandId, status: "active" } },
+            { upsert: true }
+        );
+
+        // ✅ create/find conversation + insert default message
+        const defaultText =
+            `✅ Invite Accepted\n\n` +
+            `Title: ${invite.title || invite?.campaign?.title || "Campaign"}\n` +
+            `Description: ${invite.description || ""}`;
+
+        const convInfo = await ensureConversationAndSendDefaultMessage({
+            creatorId: user._id,
+            brandId,
+            text: defaultText,
         });
 
-        console.log("Chat connection created:", chatConnection);
+        // return conversationId so FE can open exact conversation if you want
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                { invite, conversationId: convInfo?.conversationId || null },
+                "Invite status updated"
+            )
+        );
     }
 
     return res.status(200).json(new ApiResponse(200, invite, "Invite status updated"));
 });
-
-
 
 /**
  * BUSINESS: Cancel an invite (only if pending)
@@ -286,4 +354,10 @@ const cancelInvite = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, invite, "Invite cancelled"));
 });
 
-export { inviteCreatorToCampaign, getMyInvites, getSentInvites, updateInviteStatus, cancelInvite }
+export {
+    inviteCreatorToCampaign,
+    getMyInvites,
+    getSentInvites,
+    updateInviteStatus,
+    cancelInvite
+};
