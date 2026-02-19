@@ -66,4 +66,30 @@ app.use("/api/v1/applications", applicationRouter);
 app.use("/api/v1/chat", chatConnectionRouter);
 app.use("/api/v1/dashboard", dashboardRouter);
 
+// 404 handler
+app.use((req, res) => {
+    return res.status(404).json({
+        success: false,
+        data: null,
+        message: "Route not found",
+    });
+});
+
+// Centralized error handler
+app.use((err, req, res, next) => {
+    if (res.headersSent) {
+        return next(err);
+    }
+
+    const statusCode = Number.isInteger(err?.statusCode) ? err.statusCode : 500;
+    const message = err?.message || "Internal Server Error";
+
+    return res.status(statusCode).json({
+        success: false,
+        data: null,
+        message,
+        errors: Array.isArray(err?.error) ? err.error : [],
+    });
+});
+
 export { app };
