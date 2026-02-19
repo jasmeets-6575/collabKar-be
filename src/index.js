@@ -14,10 +14,8 @@ connectDB()
     .then(() => {
         const httpServer = http.createServer(app);
         initSocket(httpServer);
-        httpServer.listen(port, () => {
-            console.log(`Server listening on ${port}`);
-        });
+        httpServer.listen(port);
     })
     .catch((err) => {
-        console.log("MONGODB Connection failed", err);
+        console.error("MONGODB Connection failed", err);
     });

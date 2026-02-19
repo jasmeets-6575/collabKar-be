@@ -22,7 +22,6 @@ export function initSocket(httpServer) {
                 const o = normalizeOrigin(origin);
                 if (allowedOrigins.includes(o)) return cb(null, true);
 
-                console.log("Socket blocked origin:", origin);
                 return cb(new Error(`Socket.IO CORS blocked for origin: ${origin}`));
             },
             credentials: true,
@@ -34,9 +33,7 @@ export function initSocket(httpServer) {
     socketAuth(io);
 
     io.on("connection", (socket) => {
-        console.log("🟢 Client connected:", socket.id);
         EventHandlers(socket, io);
-        socket.on("disconnect", () => console.log("🔴 Client disconnected:", socket.id));
     });
 
     return io;

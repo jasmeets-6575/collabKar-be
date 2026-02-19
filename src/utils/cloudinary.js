@@ -13,9 +13,7 @@ const safeUnlink = (filePath) => {
         if (filePath && fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
         }
-    } catch (err) {
-        console.log("Error in path", err);
-    }
+    } catch (err) {}
 };
 
 const uploadOnCloudinary = async (localFilePath) => {
@@ -25,11 +23,6 @@ const uploadOnCloudinary = async (localFilePath) => {
         const resp = await cloudinary.uploader.upload(localFilePath, {
             resource_type: "auto",
         });
-
-        console.log(
-            "File uploaded to Cloudinary:",
-            resp.secure_url || resp.url
-        );
 
         safeUnlink(localFilePath);
         return resp;
