@@ -5,6 +5,254 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { generateAccessAndrefreshTokens } from "../utils/generateAccessAndrefreshTokens.js";
 import { mustEnv } from "../utils/MustEnv.js";
+import crypto from "crypto";
+
+const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GOOGLE_USER_INFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
+const GOOGLE_STATE_TTL_MS = 10 * 60 * 1000;
+
+const getCookieOptions = () => {
+  const isProd = mustEnv("NODE_ENV") === "production";
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+  };
+};
+
+const sanitizeNextPath = (value) => {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return "";
+  return trimmed;
+};
+
+const getAllowedGoogleRedirectOrigins = () => {
+  const raw = process.env.GOOGLE_OAUTH_ALLOWED_ORIGINS;
+  const defaults = ["http://localhost:3000", "http://localhost:3001"];
+  const origins = raw
+    ? raw
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : defaults;
+
+  return new Set(origins);
+};
+
+const isRedirectUriAllowed = (redirectUri) => {
+  try {
+    const parsed = new URL(redirectUri);
+    return getAllowedGoogleRedirectOrigins().has(parsed.origin);
+  } catch {
+    return false;
+  }
+};
+
+const getGoogleStateSecret = () =>
+  process.env.GOOGLE_OAUTH_STATE_SECRET || mustEnv("ACCESS_TOKEN_SECRET");
+
+const encodeStatePayload = (payload) =>
+  Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+
+const decodeStatePayload = (encodedPayload) =>
+  JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8"));
+
+const signState = (encodedPayload) =>
+  crypto
+    .createHmac("sha256", getGoogleStateSecret())
+    .update(encodedPayload)
+    .digest("base64url");
+
+const createOAuthState = (payload) => {
+  const encoded = encodeStatePayload(payload);
+  return `${encoded}.${signState(encoded)}`;
+};
+
+const parseOAuthState = (rawState) => {
+  const [encoded, signature] = String(rawState || "").split(".");
+  if (!encoded || !signature) {
+    throw new ApiError(400, "Invalid OAuth state");
+  }
+
+  const expectedSignature = signState(encoded);
+  const signatureMatches = crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  );
+
+  if (!signatureMatches) {
+    throw new ApiError(400, "Invalid OAuth state signature");
+  }
+
+  const payload = decodeStatePayload(encoded);
+  if (!payload?.createdAt || Date.now() - Number(payload.createdAt) > GOOGLE_STATE_TTL_MS) {
+    throw new ApiError(400, "OAuth state expired");
+  }
+
+  return payload;
+};
+
+const defaultFrontendGoogleRedirect =
+  process.env.GOOGLE_OAUTH_DEFAULT_REDIRECT_URI ||
+  "http://localhost:3000/auth/google/callback";
+
+const buildFrontendCallbackUrl = (redirectUri, params = {}) => {
+  const safeRedirectUri = redirectUri || defaultFrontendGoogleRedirect;
+  const url = new URL(safeRedirectUri);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  return url.toString();
+};
+
+const startGoogleAuth = asyncHandler(async (req, res) => {
+  const mode = req.query?.mode === "register" ? "register" : "login";
+  const next = sanitizeNextPath(req.query?.next);
+  const redirectUri = String(req.query?.redirect_uri || "").trim();
+
+  if (!redirectUri || !isRedirectUriAllowed(redirectUri)) {
+    throw new ApiError(400, "Invalid redirect_uri");
+  }
+
+  if (mode === "register") {
+    return res.redirect(
+      buildFrontendCallbackUrl(redirectUri, {
+        error: "google_register_disabled",
+        next,
+      })
+    );
+  }
+
+  const state = createOAuthState({
+    next,
+    redirectUri,
+    nonce: crypto.randomUUID(),
+    createdAt: Date.now(),
+  });
+
+  const authUrl = new URL(GOOGLE_AUTH_URL);
+  authUrl.searchParams.set("client_id", mustEnv("GOOGLE_CLIENT_ID"));
+  authUrl.searchParams.set("redirect_uri", mustEnv("GOOGLE_OAUTH_CALLBACK_URL"));
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("scope", "openid email profile");
+  authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set("access_type", "offline");
+  authUrl.searchParams.set("include_granted_scopes", "true");
+  authUrl.searchParams.set("prompt", "select_account");
+
+  return res.redirect(authUrl.toString());
+});
+
+const googleAuthCallback = asyncHandler(async (req, res) => {
+  const code = String(req.query?.code || "").trim();
+  const state = String(req.query?.state || "").trim();
+
+  let redirectUri = defaultFrontendGoogleRedirect;
+  let next = "";
+
+  try {
+    if (!code || !state) {
+      return res.redirect(
+        buildFrontendCallbackUrl(redirectUri, { error: "missing_code_or_state" })
+      );
+    }
+
+    const statePayload = parseOAuthState(state);
+    redirectUri = String(statePayload.redirectUri || "").trim();
+    next = sanitizeNextPath(statePayload.next);
+
+    if (!redirectUri || !isRedirectUriAllowed(redirectUri)) {
+      return res.redirect(
+        buildFrontendCallbackUrl(defaultFrontendGoogleRedirect, {
+          error: "invalid_redirect_uri",
+        })
+      );
+    }
+
+    const tokenResponse = await fetch(GOOGLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: mustEnv("GOOGLE_CLIENT_ID"),
+        client_secret: mustEnv("GOOGLE_CLIENT_SECRET"),
+        redirect_uri: mustEnv("GOOGLE_OAUTH_CALLBACK_URL"),
+        grant_type: "authorization_code",
+      }),
+    });
+
+    const tokenJson = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenJson?.access_token) {
+      return res.redirect(
+        buildFrontendCallbackUrl(redirectUri, {
+          error: "google_token_exchange_failed",
+          next,
+        })
+      );
+    }
+
+    const profileResponse = await fetch(GOOGLE_USER_INFO_URL, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${tokenJson.access_token}`,
+        Accept: "application/json",
+      },
+    });
+
+    const profile = await profileResponse.json();
+    const googleEmail = String(profile?.email || "").toLowerCase().trim();
+    const googleSub = String(profile?.sub || "").trim();
+
+    if (!profileResponse.ok || !googleEmail || !googleSub) {
+      return res.redirect(
+        buildFrontendCallbackUrl(redirectUri, {
+          error: "google_profile_fetch_failed",
+          next,
+        })
+      );
+    }
+
+    let user = await User.findOne({ email: googleEmail });
+
+    if (!user) {
+      return res.redirect(
+        buildFrontendCallbackUrl(redirectUri, {
+          error: "account_not_found",
+          next,
+        })
+      );
+    }
+
+    const { accessToken, refreshToken } = await generateAccessAndrefreshTokens(
+      user._id
+    );
+    const cookieOptions = getCookieOptions();
+
+    return res
+      .cookie("accessToken", accessToken, cookieOptions)
+      .cookie("refreshToken", refreshToken, cookieOptions)
+      .redirect(
+        buildFrontendCallbackUrl(redirectUri, {
+          accessToken,
+          next,
+        })
+      );
+  } catch (error) {
+    return res.redirect(
+      buildFrontendCallbackUrl(redirectUri, {
+        error: "google_auth_failed",
+        next,
+      })
+    );
+  }
+});
 
 /* -------------------------------- REGISTER -------------------------------- */
 
@@ -428,4 +676,12 @@ const editUserInfo = asyncHandler(async (req, res) => {
 });
 
 
-export { registerUser, loginUser, logoutUser, getUserData, editUserInfo };
+export {
+  registerUser,
+  loginUser,
+  logoutUser,
+  getUserData,
+  editUserInfo,
+  startGoogleAuth,
+  googleAuthCallback,
+};
