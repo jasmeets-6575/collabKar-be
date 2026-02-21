@@ -6,14 +6,25 @@ let io;
 
 const normalizeOrigin = (s) => String(s).trim().replace(/\/$/, "");
 
-export function initSocket(httpServer) {
-    const allowedOrigins = [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        // "https://bucolic-snickerdoodle-271168.netlify.app",
+function getAllowedOrigins() {
+    const fromEnv = [
+        process.env.ALLOWED_ORIGINS,
+        process.env.CORS_ORIGIN,
+        process.env.CORS_LOCAL1,
+        process.env.CORS_LOCAL2,
+        process.env.CORS_LOCAL3,
     ]
         .filter(Boolean)
-        .map(normalizeOrigin);
+        .flatMap((v) => String(v).split(","))
+        .map(normalizeOrigin)
+        .filter(Boolean);
+
+    const defaults = ["http://localhost:3000", "http://localhost:3001"];
+    return Array.from(new Set((fromEnv.length ? fromEnv : defaults).map(normalizeOrigin)));
+}
+
+export function initSocket(httpServer) {
+    const allowedOrigins = getAllowedOrigins();
 
     io = new Server(httpServer, {
         cors: {
